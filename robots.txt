@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://corneluu.github.io/addicted2-site/sitemap.xml
