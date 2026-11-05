@@ -1,0 +1,47 @@
+# Updates the live status message in Discord #status-server every ~5 minutes.
+# Secrets (repo Settings → Secrets → Actions): DISCORD_STATUS_WEBHOOK, DISCORD_STATUS_MESSAGE_ID
+# shortcut: GitHub runs cron late (5-15 min) and pauses schedules after 60 days without commits; move to the forum bot when it runs 24/7.
+name: Discord status
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: discord-status
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Update status message
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_STATUS_WEBHOOK }}
+          MSG_ID: ${{ secrets.DISCORD_STATUS_MESSAGE_ID }}
+        run: |
+          set -euo pipefail
+          s=$(curl -sf --max-time 20 -A 'Addicted2-Discord-Status/1.0' https://api.mcsrvstat.us/3/play.addicted2.ro || echo '{"online":false}')
+          body=$(jq -n --argjson s "$s" --arg now "$(date +%s)" '
+            ($s.online == true) as $on |
+            ([$s.players.list[]?.name] | .[0:20]) as $names |
+            {embeds: [{
+              color: (if $on then 3129167 else 14747136 end),
+              author: {name: "ADDICTED2 ROMANIA", icon_url: "https://corneluu.github.io/addicted2-site/img/favicon.png"},
+              title: (if $on then "🟢 SERVER ONLINE" else "🔴 SERVER OFFLINE" end),
+              description: (if $on then "Intră acum pe **play.addicted2.ro**!" else "Serverul nu răspunde momentan. Revino în câteva minute." end),
+              fields: ([
+                {name: "👥 Jucători", value: (if $on then "**\($s.players.online)** / \($s.players.max)" else "—" end), inline: true},
+                {name: "🎮 IP", value: "`play.addicted2.ro`", inline: true},
+                {name: "🧩 Versiuni", value: (if $on then ($s.version // "—") else "—" end), inline: true}
+              ]
+              + (if ($names | length) > 0 then [{name: "🟢 Online acum", value: ($names | join(", ")), inline: false}] else [] end)
+              + [{name: "🕒 Actualizat", value: "<t:\($now):R>", inline: false}]),
+              footer: {text: "Se actualizează automat la ~5 minute · play.addicted2.ro"}
+            }]}')
+          curl -sf --max-time 20 -X PATCH -H 'Content-Type: application/json' -d "$body" "$WEBHOOK/messages/$MSG_ID" > /dev/null
+          echo "updated: online=$(jq -r .online <<<"$s")"
